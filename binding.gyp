@@ -10,12 +10,14 @@
       "OTHER_CFLAGS": [
         "-O3",
         "-std=c99",
+        "-Wall",
         "-D_GNU_SOURCE"
       ]
     },
     "cflags": [
       "-O3",
       "-std=c99",
+      "-Wall",
       "-D_GNU_SOURCE"
     ],
     "conditions": [

@@ -5,7 +5,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/xuewuli/tiny.http.git"
+    "url": "https://github.com/Tiny.IO/tiny.http.git"
   },
   "author": {
     "name": "xuewuli",
@@ -13,25 +13,33 @@
     "url": "https://github.com/xuewuli"
   },
   "scripts": {
-    "test": "tape test/*.js",
-    "eslint": "eslint --quiet --fix .",
-    "bench": "node test/benchmarks"
+    "install": "node-gyp-build",
+    "prebuild": "prebuildify --napi",
+    "test": "tape tests/*.js | tap-spec",
+    "lint": "eslint --quiet --fix .",
+    "cover": "nyc --reporter=lcovonly --reporter=text --reporter=text-summary --exclude=tests tape tests/*.js | tap-spec",
+    "bench": "node benchmark"
   },
   "license": "MIT",
   "devDependencies": {
     "autocannon": "^2.4.1",
     "cli-table": "^0.3.1",
-    "eslint": "^5.5.0",
-    "eslint-config-airbnb-base": "^13.1.0",
-    "eslint-config-prettier": "^3.0.1",
-    "eslint-plugin-import": "^2.14.0",
-    "eslint-plugin-prettier": "^2.6.2",
+    "coveralls": "^3.0.3",
+    "eslint": "^5.16.0",
+    "eslint-config-prettier": "^3.6.0",
+    "eslint-plugin-prettier": "^2.7.0",
     "kleur": "^2.0.2",
     "minimist": "^1.2.0",
-    "ora": "^3.0.0",
+    "nyc": "^14.1.1",
+    "ora": "^3.4.0",
     "pancho": "^1.0.2",
-    "prettier": "^1.14.2",
-    "tape": "^4.9.1",
-    "turbo-http": "^0.3.0"
+    "prebuildify": "^3.0.0",
+    "prettier": "^1.17.1",
+    "tap-spec": "^5.0.0",
+    "tape": "^4.10.2",
+    "turbo-http": "^0.3.2"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.1.0"
   }
 }

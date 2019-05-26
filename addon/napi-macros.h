@@ -1,6 +1,18 @@
 #ifndef NAPI_MACROS
 #define NAPI_MACROS
 
+#if __GNUC__ >= 4
+#define likely(x)        __builtin_expect(!!(x), 1)
+#define unlikely(x)      __builtin_expect(!!(x), 0)
+#else
+#define likely(x)        (x)
+#define unlikely(x)      (x)
+#endif //__GNUC__
+
+#if defined(_WIN32)
+# define alignas(x) __declspec(align(x))
+#endif //_WIN32
+
 #define NAPI_INIT() \
   static void napi_macros_init(napi_env env, napi_value exports); \
   napi_value napi_macros_init_wrap (napi_env env, napi_value exports) { \
@@ -11,14 +23,14 @@
   static void napi_macros_init (napi_env env, napi_value exports)
 
 #define NAPI_MAKE_CALLBACK(env, nil, ctx, cb, n, argv, res) \
-  if (napi_make_callback(env, nil, ctx, cb, n, argv, res) == napi_pending_exception) { \
+  if (unlikely(napi_make_callback(env, nil, ctx, cb, n, argv, res) == napi_pending_exception)) { \
     napi_value fatal_exception; \
     napi_get_and_clear_last_exception(env, &fatal_exception); \
     napi_fatal_exception(env, fatal_exception); \
   }
 
 #define NAPI_STATUS_THROWS(call) \
-  if ((call) != napi_ok) { \
+  if (unlikely((call) != napi_ok)) { \
     napi_throw_error(env, NULL, #call " failed!"); \
   }
 
@@ -27,7 +39,7 @@
 
 #define NAPI_UV_THROWS(err, fn) \
   err = fn; \
-  if (err < 0) { \
+  if (unlikely(err < 0)) { \
     napi_throw_error(env, uv_err_name(err), uv_strerror(err)); \
     return NULL; \
   }
@@ -143,7 +155,7 @@
 #define NAPI_UTF8(name, size, val) \
   char name[size]; \
   size_t name##_len; \
-  if (napi_get_value_string_utf8(env, val, (char *) &name, size, &name##_len) != napi_ok) { \
+  if (unlikely(napi_get_value_string_utf8(env, val, (char *) &name, size, &name##_len) != napi_ok)) { \
     napi_throw_error(env, "EINVAL", "Expected string"); \
     return NULL; \
   }
@@ -158,15 +170,22 @@
 
 #define NAPI_UINT32(name, val) \
   uint32_t name; \
-  if (napi_get_value_uint32(env, val, &name) != napi_ok) { \
+  if (unlikely(napi_get_value_uint32(env, val, &name) != napi_ok)) { \
     napi_throw_error(env, "EINVAL", "Expected unsigned number"); \
     return NULL; \
   }
 
 #define NAPI_INT32(name, val) \
   int32_t name; \
-  if (napi_get_value_int32(env, val, &name) != napi_ok) { \
+  if (unlikely(napi_get_value_int32(env, val, &name) != napi_ok)) { \
     napi_throw_error(env, "EINVAL", "Expected number"); \
+    return NULL; \
+  }
+
+#define NAPI_BOOL(name, val) \
+  bool name; \
+  if (unlikely(napi_get_value_bool(env, val, &name) != napi_ok)) { \
+    napi_throw_error(env, "EINVAL", "Expected boolean"); \
     return NULL; \
   }
 
@@ -200,6 +219,9 @@
 
 #define NAPI_ARGV_INT32(name, i) \
   NAPI_INT32(name, argv[i])
+
+#define NAPI_ARGV_BOOL(name, i) \
+  NAPI_BOOL(name, argv[i])
 
 #define NAPI_ARGV_BUFFER_CAST(type, name, i) \
   NAPI_BUFFER_CAST(type, name, argv[i])

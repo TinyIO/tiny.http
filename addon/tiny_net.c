@@ -21,7 +21,7 @@
   napi_close_handle_scope(env, scope);
 
 #define TINY_MAKE_CALLBACK_FATAL(n, argv, result) \
-  if (napi_make_callback(env, NULL, ctx, callback, n, argv, result) == napi_pending_exception) { \
+  if (unlikely(napi_make_callback(env, NULL, ctx, callback, n, argv, result) == napi_pending_exception)) { \
     napi_value fatal_exception; \
     napi_get_and_clear_last_exception(env, &fatal_exception); \
     napi_fatal_exception(env, fatal_exception); \
@@ -35,8 +35,7 @@ typedef struct {
   uv_buf_t reading;
   napi_env env;
   napi_ref ctx;
-  napi_ref on_alloc_connection;
-  napi_ref on_connect;
+  napi_ref on_alloc_or_connect;
   napi_ref on_write;
   napi_ref on_read;
   napi_ref on_finish;
@@ -46,16 +45,16 @@ typedef struct {
 static void on_uv_connection (uv_stream_t* server, int status) {
   const tiny_net_tcp_t *self = server->data;
 
-  if (status < 0) return; // ignore bad connections. TODO: bubble up?
+  if (unlikely(status < 0)) return; // ignore bad connections. TODO: bubble up?
 
-  TINY_NET_CALLBACK(self->on_alloc_connection,
+  TINY_NET_CALLBACK(self->on_alloc_or_connect,
     napi_value result;
     napi_make_callback(env, NULL, ctx, callback, 0, NULL, &result);
 
     NAPI_BUFFER_CAST(tiny_net_tcp_t *, client, result)
     uv_accept(server, (uv_stream_t *) &(client->handle));
 
-    napi_get_reference_value(env, client->on_connect, &callback);
+    napi_get_reference_value(env, client->on_alloc_or_connect, &callback);
     napi_get_reference_value(env, client->ctx, &ctx);
 
     napi_value argv[1];
@@ -121,7 +120,7 @@ static void on_uv_close (uv_handle_t *handle) {
 static void on_uv_connect (uv_connect_t* req, int status) {
   const tiny_net_tcp_t *self = req->handle->data;
 
-  TINY_NET_CALLBACK(self->on_connect,
+  TINY_NET_CALLBACK(self->on_alloc_or_connect,
     napi_value argv[1];
     napi_create_int32(env, status, &(argv[0]));
     TINY_MAKE_CALLBACK_FATAL(1, argv, NULL)
@@ -129,7 +128,7 @@ static void on_uv_connect (uv_connect_t* req, int status) {
 }
 
 NAPI_METHOD(tiny_net_tcp_init) {
-  NAPI_ARGV(8)
+  NAPI_ARGV(7)
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
 
   int err;
@@ -141,12 +140,11 @@ NAPI_METHOD(tiny_net_tcp_init) {
   NAPI_UV_THROWS(err, uv_tcp_init(uv_default_loop(), handle));
 
   napi_create_reference(env, argv[1], 1, &(self->ctx));
-  napi_create_reference(env, argv[2], 1, &(self->on_alloc_connection));
-  napi_create_reference(env, argv[3], 1, &(self->on_connect));
-  napi_create_reference(env, argv[4], 1, &(self->on_write));
-  napi_create_reference(env, argv[5], 1, &(self->on_read));
-  napi_create_reference(env, argv[6], 1, &(self->on_finish));
-  napi_create_reference(env, argv[7], 1, &(self->on_close));
+  napi_create_reference(env, argv[2], 1, &(self->on_alloc_or_connect));
+  napi_create_reference(env, argv[3], 1, &(self->on_write));
+  napi_create_reference(env, argv[4], 1, &(self->on_read));
+  napi_create_reference(env, argv[5], 1, &(self->on_finish));
+  napi_create_reference(env, argv[6], 1, &(self->on_close));
 
   return NULL;
 }
@@ -156,11 +154,49 @@ NAPI_METHOD(tiny_net_tcp_destroy) {
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
 
   napi_delete_reference(env, self->ctx);
-  napi_delete_reference(env, self->on_alloc_connection);
-  napi_delete_reference(env, self->on_connect);
+  napi_delete_reference(env, self->on_alloc_or_connect);
   napi_delete_reference(env, self->on_write);
   napi_delete_reference(env, self->on_read);
   napi_delete_reference(env, self->on_finish);
+  napi_delete_reference(env, self->on_close);
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_init_server) {
+  NAPI_ARGV(5)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+  NAPI_ARGV_BOOL(reusePort, 4)
+
+  int err;
+  uv_tcp_t *handle = &(self->handle);
+
+  handle->data = self;
+  self->env = env;
+
+  NAPI_UV_THROWS(err, uv_tcp_init_ex(uv_default_loop(), handle, AF_INET));
+#ifdef SO_REUSEPORT
+  if (reusePort) {
+    uv_os_fd_t fd;
+    int on = 1;
+    NAPI_UV_THROWS(err, uv_fileno((const uv_handle_t *)handle, &fd));
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+  }
+#endif //SO_REUSEPORT
+
+  napi_create_reference(env, argv[1], 1, &(self->ctx));
+  napi_create_reference(env, argv[2], 1, &(self->on_alloc_or_connect));
+  napi_create_reference(env, argv[3], 1, &(self->on_close));
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_destroy_server) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+
+  napi_delete_reference(env, self->ctx);
+  napi_delete_reference(env, self->on_alloc_or_connect);
   napi_delete_reference(env, self->on_close);
 
   return NULL;
@@ -170,14 +206,14 @@ NAPI_METHOD(tiny_net_tcp_listen) {
   NAPI_ARGV(4)
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
   NAPI_ARGV_UINT32(port, 1)
-  NAPI_ARGV_UTF8(ip, 47, 2)
+  NAPI_ARGV_UTF8(ip, INET6_ADDRSTRLEN, 2)
   NAPI_ARGV_UINT32(backlog, 3)
 
   int err;
   union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
 
   err = uv_ip6_addr(ip, port, &addr.ipv6);
-  if (err != 0) {
+  if (unlikely(err != 0)) {
     NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr.ipv4))
   }
 
@@ -298,25 +334,6 @@ NAPI_METHOD(tiny_net_tcp_close) {
   return NULL;
 }
 
-NAPI_METHOD(tiny_net_tcp_port) {
-  NAPI_ARGV(1)
-  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
-
-  int err;
-  struct sockaddr_in addr;
-  int addr_len = sizeof(struct sockaddr_in);
-
-  NAPI_UV_THROWS(err, uv_tcp_getsockname(
-    &(self->handle),
-    (struct sockaddr *) &addr,
-    &addr_len
-  ))
-
-  int port = ntohs(addr.sin_port);
-
-  NAPI_RETURN_UINT32(port)
-}
-
 NAPI_METHOD(tiny_net_tcp_connect) {
   NAPI_ARGV(3)
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
@@ -327,26 +344,168 @@ NAPI_METHOD(tiny_net_tcp_connect) {
   union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
 
   err = uv_ip6_addr(ip, port, &addr.ipv6);
-  if (err != 0) {
+  if (unlikely(err != 0)) {
     NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr.ipv4))
   }
 
   NAPI_UV_THROWS(err, uv_tcp_connect(
-    &(self->connect),
-    &(self->handle),
-    (const struct sockaddr *) &addr,
-    on_uv_connect)
-  )
+                          &(self->connect),
+                          &(self->handle),
+                          (const struct sockaddr *)&addr,
+                          on_uv_connect))
 
   return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_keep_alive) {
+  NAPI_ARGV(3)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+  NAPI_ARGV_BOOL(enable, 1)
+  NAPI_ARGV_INT32(delay, 2)
+
+  int err;
+
+  NAPI_UV_THROWS(err, uv_tcp_keepalive(&self->handle, enable, delay));
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_no_delay) {
+  NAPI_ARGV(2)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+  NAPI_ARGV_BOOL(enable, 1)
+
+  int err;
+
+  NAPI_UV_THROWS(err, uv_tcp_nodelay(&self->handle, enable));
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_ref) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+
+  uv_tcp_t *handle = &(self->handle);
+
+  handle->data = self;
+
+  uv_ref((uv_handle_t *)&handle);
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_unref) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+
+  uv_tcp_t *handle = &(self->handle);
+
+  handle->data = self;
+
+  uv_unref((uv_handle_t *)&handle);
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_net_tcp_socketname) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+
+  int err;
+  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  int addr_len = sizeof(addr);
+
+  NAPI_UV_THROWS(err, uv_tcp_getsockname(
+                          &(self->handle),
+                          (struct sockaddr *)&addr,
+                          &addr_len))
+
+  char ip[INET6_ADDRSTRLEN];
+  if (addr.ipv4.sin_family == AF_INET) {
+    inet_ntop(AF_INET, &addr.ipv4.sin_addr, ip, INET_ADDRSTRLEN);
+  } else {
+    inet_ntop(AF_INET6, &addr.ipv6.sin6_addr, ip, INET6_ADDRSTRLEN);
+  }
+
+  napi_value port;
+
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.ipv4.sin_port), &port))
+
+  napi_value address;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&ip, NAPI_AUTO_LENGTH, &address))
+
+  napi_value family;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (addr.ipv4.sin_family == AF_INET) ? (const char *)&"IPv4" : (const char *)&"IPv6", NAPI_AUTO_LENGTH, &family))
+
+  napi_value obj;
+
+  NAPI_STATUS_THROWS(napi_create_object(env, &obj))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "address", address))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "family", family))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "port", port))
+
+  return obj;
+}
+
+NAPI_METHOD(tiny_net_tcp_peername) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
+
+  int err;
+
+  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  int addr_len = sizeof(addr);
+
+  NAPI_UV_THROWS(err, uv_tcp_getpeername(
+                          &(self->handle),
+                          (struct sockaddr *)&addr,
+                          &addr_len))
+
+  char ip[INET6_ADDRSTRLEN];
+  if (addr.ipv4.sin_family == AF_INET) {
+    inet_ntop(AF_INET, &addr.ipv4.sin_addr, ip, INET_ADDRSTRLEN);
+  } else {
+    inet_ntop(AF_INET6, &addr.ipv6.sin6_addr, ip, INET6_ADDRSTRLEN);
+  }
+
+  napi_value port;
+
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.ipv4.sin_port), &port))
+
+  napi_value address;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&ip, NAPI_AUTO_LENGTH, &address))
+
+  napi_value family;
+
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (addr.ipv4.sin_family == AF_INET) ? (const char *)&"IPv4" : (const char *)&"IPv6", NAPI_AUTO_LENGTH, &family))
+
+  napi_value obj;
+
+  NAPI_STATUS_THROWS(napi_create_object(env, &obj))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "address", address))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "family", family))
+  NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "port", port))
+
+  return obj;
 }
 
 NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_init)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_destroy)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_init_server)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_destroy_server)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_listen)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_connect)
-  NAPI_EXPORT_FUNCTION(tiny_net_tcp_port)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_keep_alive)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_no_delay)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_ref)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_unref)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_socketname)
+  NAPI_EXPORT_FUNCTION(tiny_net_tcp_peername)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_write)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_write_two)
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_writev)

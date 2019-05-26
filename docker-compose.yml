@@ -1,0 +1,10 @@
+version: '2.1'
+services:
+  server:
+    build: .
+    stdin_open: true
+    tty: true
+    privileged: true
+    entrypoint: ["sh"]
+    volumes:
+      - .:/tiny-net
