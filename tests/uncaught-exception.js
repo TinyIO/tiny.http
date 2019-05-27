@@ -1,38 +1,38 @@
-const tape = require("tape");
-const proc = require("child_process");
-const tiny = require("../lib/tcp");
+const tape = require('tape');
+const proc = require('child_process');
+const tiny = require('../lib/tcp');
 
-tape("uncaughts are not swallowed", t => {
+tape('uncaughts are not swallowed', t => {
   const server = tiny.createServer(socket => socket.end());
 
   server.listen(() => {
     const client = tiny.connect(server.address().port);
 
-    process.on("uncaughtException", err => {
+    process.on('uncaughtException', err => {
       client.close();
       server.close();
-      t.same(err.message, "stop");
+      t.same(err.message, 'stop');
       t.end();
     });
 
-    client.on("connect", () => {
-      throw new Error("stop");
+    client.on('connect', () => {
+      throw new Error('stop');
     });
   });
 });
 
-tape("uncaughts are not swallowed (child process)", t => {
+tape('uncaughts are not swallowed (child process)', t => {
   const child = proc.spawn(
     process.execPath,
     [
-      "-e",
+      '-e',
       `
-    const tiny = require('../packages/tcp')
+    const tiny = require('../lib/tcp')
     const server = tiny.createServer(socket => socket.end())
 
-    server.listen(function () {
+    server.listen(() => {
       const client = tiny.connect(server.address().port)
-      client.on('connect', function () {
+      client.on('connect', () => {
         throw new Error('stop')
       })
     })
@@ -44,9 +44,9 @@ tape("uncaughts are not swallowed (child process)", t => {
   );
 
   const buf = [];
-  child.stderr.on("data", data => buf.push(data));
-  child.stderr.on("end", () => {
-    t.ok(buf.join("").indexOf("Error: stop") > -1);
+  child.stderr.on('data', data => buf.push(data));
+  child.stderr.on('end', () => {
+    t.ok(buf.join('').indexOf('Error: stop') > -1);
     t.end();
   });
 });

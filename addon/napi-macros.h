@@ -11,6 +11,8 @@
 
 #if defined(_WIN32)
 # define alignas(x) __declspec(align(x))
+#else
+# define alignas(x) __attribute__((aligned(x)))
 #endif //_WIN32
 
 #define NAPI_INIT() \

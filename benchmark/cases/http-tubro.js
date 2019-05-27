@@ -1,9 +1,5 @@
-const { createServer } = require("turbo-http");
+const { createServer } = require('./node_modules/turbo-http');
 
-const server = createServer((req, res) => {
-  res.end("find");
-});
+const { makeServer } = require('../baseServer');
 
-server.listen(3001, "0.0.0.0", () => {
-  console.log(server.address());
-});
+makeServer(createServer);

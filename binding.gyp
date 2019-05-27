@@ -4,7 +4,7 @@
     "include_dirs": [
     ],
     "sources": [
-      "./addon/tiny_net.c"
+      "./addon/tiny_core.c"
     ],
     "xcode_settings": {
       "OTHER_CFLAGS": [

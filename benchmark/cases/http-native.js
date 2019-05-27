@@ -1,9 +1,5 @@
-const { createServer } = require("http");
+const { createServer } = require('http');
 
-const server = createServer((req, res) => {
-  res.end("find");
-});
+const { makeServer } = require('../baseServer');
 
-server.listen(3001, "0.0.0.0", () => {
-  console.log(server.address());
-});
+makeServer(createServer);

@@ -1,17 +1,15 @@
 /* eslint no-console: 0 */
 
-const autocannon = require("autocannon");
-const kleur = require("kleur");
-const fs = require("fs");
-const minimist = require("minimist");
-const ora = require("ora");
-const nap = require("pancho");
-const Table = require("cli-table");
-const { fork } = require("child_process");
+const autocannon = require('autocannon');
+const kleur = require('kleur');
+const fs = require('fs');
+const minimist = require('minimist');
+const ora = require('ora');
+const nap = require('pancho');
+const Table = require('cli-table');
+const { fork } = require('child_process');
 
-const files = fs
-  .readdirSync(`${__dirname}/cases`)
-  .filter(file => file.match(/(.+)\.js$/));
+const files = fs.readdirSync(`${__dirname}/cases`).filter(file => file.match(/(.+)\.js$/));
 
 const argv = minimist(process.argv.slice(2));
 const cannon = (title = null) =>
@@ -20,9 +18,9 @@ const cannon = (title = null) =>
       Object.assign(
         {},
         {
-          url: argv.u || "http://localhost:3001/user/keys/233",
-          connections: argv.c || 500,
-          pipelining: argv.p || 50,
+          url: argv.u || 'http://localhost:3001/user/keys/233',
+          connections: argv.c || 100,
+          pipelining: argv.p || 1,
           duration: argv.d || 20
         },
         { title }
@@ -44,16 +42,16 @@ const benchmark = async results => {
       await nap(0.25);
 
       try {
-        const framework = kleur.blue(file.replace(".js", ""));
+        const framework = kleur.blue(file.replace('.js', ''));
         const spin = ora(`Warming up ${framework}`).start();
-        spin.color = "yellow";
+        spin.color = 'yellow';
         await cannon();
         spin.text = `Running ${framework}`;
-        spin.color = "green";
+        spin.color = 'green';
         const result = await cannon(file);
         spin.text = framework;
         spin.succeed();
-        forked.kill("SIGINT");
+        forked.kill('SIGINT');
         await nap(0.25);
         return yes(result);
       } catch (error) {
@@ -78,13 +76,13 @@ const benchmark = async results => {
 
 benchmark([]).then(results => {
   const table = new Table({
-    head: ["", "Requests/s", "Latency", "Throughput/Mb"]
+    head: ['', 'Requests/s', 'Latency', 'Throughput/Mb']
   });
 
   results.forEach(result => {
     if (result) {
       table.push([
-        kleur.blue(result.title.replace(".js", "")),
+        kleur.blue(result.title.replace('.js', '')),
         result.requests.average,
         result.latency.average,
         (result.throughput.average / 1024 / 1024).toFixed(2)

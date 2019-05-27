@@ -1,92 +1,83 @@
-const tape = require("tape");
-const tiny = require("../lib/tcp");
+const tape = require('tape');
+const tiny = require('../lib/tcp');
 
-tape("writev", t => {
+tape('writev', t => {
   const server = tiny.createServer(echo);
 
   server.listen(() => {
     const client = tiny.connect(server.address().port);
 
     read(client, 11, (err, buf) => {
-      t.error(err, "no error");
-      t.same(buf, Buffer.from("hello world"));
+      t.error(err, 'no error');
+      t.same(buf, Buffer.from('hello world'));
       server.close();
       client.close(() => t.end());
     });
 
-    client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    client.writev([Buffer.from('hello '), Buffer.from('world')]);
   });
 });
 
-tape("writev after connect", t => {
+tape('writev after connect', t => {
   const server = tiny.createServer(echo);
 
   server.listen(() => {
     const client = tiny.connect(server.address().port);
 
     read(client, 11, (err, buf) => {
-      t.error(err, "no error");
-      t.same(buf, Buffer.from("hello world"));
+      t.error(err, 'no error');
+      t.same(buf, Buffer.from('hello world'));
       server.close();
       client.close(() => t.end());
     });
 
-    client.on("connect", () => {
-      client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    client.on('connect', () => {
+      client.writev([Buffer.from('hello '), Buffer.from('world')]);
     });
   });
 });
 
-tape("writev before and after connect", t => {
+tape('writev before and after connect', t => {
   const server = tiny.createServer(echo);
 
   server.listen(() => {
     const client = tiny.connect(server.address().port);
 
     read(client, 14 + 11, (err, buf) => {
-      t.error(err, "no error");
-      console.log(buf.toString());
-      t.same(buf, Buffer.from("hej verden og hello world"));
+      t.error(err, 'no error');
+      t.same(buf.toString(), 'hej verden og hello world');
       server.close();
       client.close(() => t.end());
     });
 
-    client.writev([
-      Buffer.from("hej "),
-      Buffer.from("verden "),
-      Buffer.from("og ")
-    ]);
+    client.writev([Buffer.from('hej '), Buffer.from('verden '), Buffer.from('og ')]);
 
-    client.on("connect", () => {
-      client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    client.on('connect', () => {
+      client.writev([Buffer.from('hello '), Buffer.from('world')]);
     });
   });
 });
 
-tape("writev twice", t => {
+tape('writev twice', t => {
   const server = tiny.createServer(echo);
 
   server.listen(() => {
     const client = tiny.connect(server.address().port);
 
     read(client, 14 + 11, (err, buf) => {
-      t.error(err, "no error");
-      t.same(buf, Buffer.from("hej verden og hello world"));
+      t.error(err, 'no error');
+      t.same(buf, Buffer.from('hej verden og hello world'));
       server.close();
       client.close(() => t.end());
     });
 
-    client.writev([
-      Buffer.from("hej "),
-      Buffer.from("verden "),
-      Buffer.from("og ")
-    ]);
+    client.writev([Buffer.from('hej '), Buffer.from('verden '), Buffer.from('og ')]);
 
-    client.writev([Buffer.from("hello "), Buffer.from("world")]);
+    client.writev([Buffer.from('hello '), Buffer.from('world')]);
   });
 });
 
-tape("write 256 buffers", t => {
+tape('write 256 buffers', t => {
   const server = tiny.createServer(echo);
 
   server.listen(() => {
@@ -94,7 +85,7 @@ tape("write 256 buffers", t => {
     const expected = Buffer.alloc(256);
 
     read(client, 256, (err, buf) => {
-      t.error(err, "no error");
+      t.error(err, 'no error');
       t.same(buf, expected);
       server.close();
       client.close(() => t.end());

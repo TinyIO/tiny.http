@@ -1,3 +1,5 @@
+#define NAPI_VERSION 4
+
 #include <uv.h>
 #include <node_api.h>
 #include "napi-macros.h"
@@ -20,6 +22,13 @@
   src \
   napi_close_handle_scope(env, scope);
 
+#define TINY_PARSER_CALLBACK(fn, src) \
+  napi_value ctx; \
+  napi_get_reference_value(env, self->ctx, &ctx); \
+  napi_value callback; \
+  napi_get_reference_value(env, fn, &callback); \
+  src \
+
 #define TINY_MAKE_CALLBACK_FATAL(n, argv, result) \
   if (unlikely(napi_make_callback(env, NULL, ctx, callback, n, argv, result) == napi_pending_exception)) { \
     napi_value fatal_exception; \
@@ -27,6 +36,22 @@
     napi_fatal_exception(env, fatal_exception); \
     return; \
   }
+
+#define TINY_MAKE_CALLBACK_FATAL_NULL(n, argv, result) \
+  if (unlikely(napi_make_callback(env, NULL, ctx, callback, n, argv, result) == napi_pending_exception)) { \
+    napi_value fatal_exception; \
+    napi_get_and_clear_last_exception(env, &fatal_exception); \
+    napi_fatal_exception(env, fatal_exception); \
+    return NULL; \
+  }
+
+static const uint32_t STATE_METHOD = 0;
+static const uint32_t STATE_VERSION_MAJOR = 1;
+static const uint32_t STATE_VERSION_MINOR = 2;
+static const uint32_t STATE_PATH = 3;
+static const uint32_t STATE_HEADER_KEY = 4;
+static const uint32_t STATE_HEADER_VALUE = 5;
+static const uint32_t STATE_BODY = 6;
 
 typedef struct {
   uv_tcp_t handle;
@@ -41,6 +66,23 @@ typedef struct {
   napi_ref on_finish;
   napi_ref on_close;
 } tiny_net_tcp_t;
+
+typedef struct {
+  char state;
+  char version_major;
+  char version_minor;
+  bool next_could_have_space;
+  char *method;
+  char *path;
+  char *header_key;
+  char *header_val;
+  napi_env env;
+  napi_ref ctx;
+  napi_ref on_method;
+  napi_ref on_header;
+  napi_ref on_body;
+  napi_ref on_message;
+} tiny_http_parser_t;
 
 static void on_uv_connection (uv_stream_t* server, int status) {
   const tiny_net_tcp_t *self = server->data;
@@ -181,6 +223,7 @@ NAPI_METHOD(tiny_net_tcp_init_server) {
     int on = 1;
     NAPI_UV_THROWS(err, uv_fileno((const uv_handle_t *)handle, &fd));
     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+    // NAPI_UV_THROWS(err, uv_tcp_simultaneous_accepts(handle, 0));    
   }
 #endif //SO_REUSEPORT
 
@@ -206,16 +249,13 @@ NAPI_METHOD(tiny_net_tcp_listen) {
   NAPI_ARGV(4)
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
   NAPI_ARGV_UINT32(port, 1)
-  NAPI_ARGV_UTF8(ip, INET6_ADDRSTRLEN, 2)
+  NAPI_ARGV_UTF8(ip, INET_ADDRSTRLEN, 2)
   NAPI_ARGV_UINT32(backlog, 3)
 
   int err;
-  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  struct sockaddr_in addr;
 
-  err = uv_ip6_addr(ip, port, &addr.ipv6);
-  if (unlikely(err != 0)) {
-    NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr.ipv4))
-  }
+  NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr))
 
   NAPI_UV_THROWS(err, uv_tcp_bind(
     &(self->handle),
@@ -338,15 +378,12 @@ NAPI_METHOD(tiny_net_tcp_connect) {
   NAPI_ARGV(3)
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
   NAPI_ARGV_UINT32(port, 1)
-  NAPI_ARGV_UTF8(ip, 47, 2)
+  NAPI_ARGV_UTF8(ip, INET_ADDRSTRLEN, 2)
 
   int err;
-  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  struct sockaddr_in addr;
 
-  err = uv_ip6_addr(ip, port, &addr.ipv6);
-  if (unlikely(err != 0)) {
-    NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr.ipv4))
-  }
+  NAPI_UV_THROWS(err, uv_ip4_addr(ip, port, &addr))
 
   NAPI_UV_THROWS(err, uv_tcp_connect(
                           &(self->connect),
@@ -413,7 +450,7 @@ NAPI_METHOD(tiny_net_tcp_socketname) {
   NAPI_ARGV_BUFFER_CAST(tiny_net_tcp_t *, self, 0)
 
   int err;
-  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  struct sockaddr_in addr;
   int addr_len = sizeof(addr);
 
   NAPI_UV_THROWS(err, uv_tcp_getsockname(
@@ -421,16 +458,12 @@ NAPI_METHOD(tiny_net_tcp_socketname) {
                           (struct sockaddr *)&addr,
                           &addr_len))
 
-  char ip[INET6_ADDRSTRLEN];
-  if (addr.ipv4.sin_family == AF_INET) {
-    inet_ntop(AF_INET, &addr.ipv4.sin_addr, ip, INET_ADDRSTRLEN);
-  } else {
-    inet_ntop(AF_INET6, &addr.ipv6.sin6_addr, ip, INET6_ADDRSTRLEN);
-  }
+  char ip[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &addr.sin_addr, ip, INET_ADDRSTRLEN);
 
   napi_value port;
 
-  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.ipv4.sin_port), &port))
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.sin_port), &port))
 
   napi_value address;
 
@@ -438,7 +471,7 @@ NAPI_METHOD(tiny_net_tcp_socketname) {
 
   napi_value family;
 
-  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (addr.ipv4.sin_family == AF_INET) ? (const char *)&"IPv4" : (const char *)&"IPv6", NAPI_AUTO_LENGTH, &family))
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&"IPv4" , NAPI_AUTO_LENGTH, &family))
 
   napi_value obj;
 
@@ -456,7 +489,7 @@ NAPI_METHOD(tiny_net_tcp_peername) {
 
   int err;
 
-  union {struct sockaddr_in ipv4; struct sockaddr_in6 ipv6; } addr;
+  struct sockaddr_in addr;
   int addr_len = sizeof(addr);
 
   NAPI_UV_THROWS(err, uv_tcp_getpeername(
@@ -464,16 +497,12 @@ NAPI_METHOD(tiny_net_tcp_peername) {
                           (struct sockaddr *)&addr,
                           &addr_len))
 
-  char ip[INET6_ADDRSTRLEN];
-  if (addr.ipv4.sin_family == AF_INET) {
-    inet_ntop(AF_INET, &addr.ipv4.sin_addr, ip, INET_ADDRSTRLEN);
-  } else {
-    inet_ntop(AF_INET6, &addr.ipv6.sin6_addr, ip, INET6_ADDRSTRLEN);
-  }
+  char ip[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &addr.sin_addr, ip, INET_ADDRSTRLEN);
 
   napi_value port;
 
-  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.ipv4.sin_port), &port))
+  NAPI_STATUS_THROWS(napi_create_uint32(env, ntohs(addr.sin_port), &port))
 
   napi_value address;
 
@@ -481,7 +510,7 @@ NAPI_METHOD(tiny_net_tcp_peername) {
 
   napi_value family;
 
-  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (addr.ipv4.sin_family == AF_INET) ? (const char *)&"IPv4" : (const char *)&"IPv6", NAPI_AUTO_LENGTH, &family))
+  NAPI_STATUS_THROWS(napi_create_string_utf8(env, (const char *)&"IPv4", NAPI_AUTO_LENGTH, &family))
 
   napi_value obj;
 
@@ -491,6 +520,158 @@ NAPI_METHOD(tiny_net_tcp_peername) {
   NAPI_STATUS_THROWS(napi_set_named_property(env, obj, "port", port))
 
   return obj;
+}
+
+
+NAPI_METHOD(tiny_http_parser_init) {
+  NAPI_ARGV(6)
+  NAPI_ARGV_BUFFER_CAST(tiny_http_parser_t *, self, 0)
+
+  self->env = env;
+  self->state = STATE_METHOD;
+  napi_create_reference(env, argv[1], 1, &(self->ctx));
+  napi_create_reference(env, argv[2], 1, &(self->on_method));
+  napi_create_reference(env, argv[3], 1, &(self->on_header));
+  napi_create_reference(env, argv[4], 1, &(self->on_body));
+  napi_create_reference(env, argv[5], 1, &(self->on_message));
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_http_parser_destroy) {
+  NAPI_ARGV(1)
+  NAPI_ARGV_BUFFER_CAST(tiny_http_parser_t *, self, 0)
+
+  napi_delete_reference(env, self->ctx);
+  napi_delete_reference(env, self->on_method);
+  napi_delete_reference(env, self->on_header);
+  napi_delete_reference(env, self->on_body);
+  napi_delete_reference(env, self->on_message);
+
+  return NULL;
+}
+
+NAPI_METHOD(tiny_http_parser_execute) {
+  NAPI_ARGV(4)
+  NAPI_ARGV_BUFFER_CAST(tiny_http_parser_t *, self, 0)
+  NAPI_ARGV_BUFFER_CAST(char *, buffer, 1)
+  NAPI_ARGV_UINT32(start, 2)
+  NAPI_ARGV_UINT32(len, 3)
+
+  uint32_t str_start = 0;
+  for(uint32_t i = 0; i < len; i++) {
+    const u_char token = buffer[i];
+    switch (self->state) {
+      case STATE_METHOD: {
+        if (token == 0x20) {
+          buffer[i] = '\0';
+          self->method = &buffer[str_start];
+          str_start = i + 1;
+          self->state = STATE_PATH;
+        }
+        break;
+      }
+      case STATE_PATH: {
+        if (token == 0x20) {
+          self->state = STATE_VERSION_MAJOR;
+          buffer[i] = '\0';
+          self->path = &buffer[str_start];
+          str_start = i + 1;
+        }
+        break;
+      }
+      case STATE_VERSION_MAJOR: {
+        if (token == 0x2e) {
+          self->state = STATE_VERSION_MINOR;
+        } else if (token != 0x48 && token != 0x54 && token != 0x50 && token != 0x2f) {
+          self->version_major = token;
+        }
+        break;
+      }
+      case STATE_VERSION_MINOR: {
+        if (token == 0x0d && buffer[i + 1] == 0x0a) {
+          self->state = STATE_HEADER_KEY;
+          i++;
+          str_start = i + 1;
+        } else {
+          self->version_minor = token;
+
+          TINY_PARSER_CALLBACK(self->on_method,
+            napi_value call[1];
+            napi_create_object(env, &(call[0]));
+            napi_value method;
+            napi_create_string_latin1(env, self->method, NAPI_AUTO_LENGTH, &method);
+            napi_set_named_property(env, call[0], "method", method);
+            napi_value path;
+            napi_create_string_latin1(env, self->path, NAPI_AUTO_LENGTH, &path);
+            napi_set_named_property(env, call[0], "url", path);
+            napi_value version_minor;
+            napi_create_string_latin1(env, &self->version_minor, 1, &version_minor);
+            napi_set_named_property(env, call[0], "versionMinor", version_minor);
+            napi_value version_major;
+            napi_create_string_latin1(env, &self->version_major, 1, &version_major);
+            napi_set_named_property(env, call[0], "versionMajor", version_major);
+            TINY_MAKE_CALLBACK_FATAL_NULL(1, call, NULL)
+          )
+        }
+        break;
+      }
+      case STATE_HEADER_KEY: {
+        if (token == 0x3a) {
+          buffer[i] = '\0';
+          self->header_key = &buffer[str_start];
+          if (buffer[i + 1] == 0x20) {
+            i++;
+          }
+          self->state = STATE_HEADER_VALUE;
+          str_start = i + 1;
+        } else if (self->next_could_have_space && token == 0x20) {
+          self->next_could_have_space = false;
+        }
+        break;
+      }
+      case STATE_HEADER_VALUE: {
+        if (token == 0x0d && buffer[i + 1] == 0x0a) {
+          if (buffer[i + 2] == 0x0d && buffer[i + 3] == 0x0a) {
+            self->state = STATE_BODY;
+            i += 3;
+            TINY_PARSER_CALLBACK(self->on_message,
+              TINY_MAKE_CALLBACK_FATAL_NULL(0, NULL, NULL)
+            )
+            self->state = STATE_METHOD;
+          } else {
+            buffer[i] = '\0';
+            self->header_val = &buffer[str_start];
+            self->state = STATE_HEADER_KEY;
+
+            i++;
+            str_start = i + 1;
+
+            TINY_PARSER_CALLBACK(self->on_header,
+              napi_value call[2];
+              napi_create_string_latin1(env, self->header_key, NAPI_AUTO_LENGTH, &(call[0]));
+              napi_create_string_latin1(env, self->header_val, NAPI_AUTO_LENGTH, &(call[1]));
+              TINY_MAKE_CALLBACK_FATAL_NULL(2, call, NULL)
+            )
+            // self->info.headers[self->headerKey] = self->headerValue;
+            // self->headerKey = '';
+            // self->headerValue = '';
+          }
+        } else if (self->next_could_have_space && token == 0x20) {
+          self->next_could_have_space = false;
+        }
+        break;
+      }
+      case STATE_BODY: {
+        // this[HttpParser.kOnBody]();
+        // this[HttpParser.kOnMessageComplete]();
+        self->state = STATE_METHOD;
+        break;
+      }
+    }
+  }
+
+  return NULL;
 }
 
 NAPI_INIT() {
@@ -514,4 +695,10 @@ NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(tiny_net_tcp_close)
   NAPI_EXPORT_SIZEOF(tiny_net_tcp_t)
   NAPI_EXPORT_SIZEOF(uv_write_t)
+
+  NAPI_EXPORT_FUNCTION(tiny_http_parser_init)
+  NAPI_EXPORT_FUNCTION(tiny_http_parser_destroy)
+  NAPI_EXPORT_FUNCTION(tiny_http_parser_execute)
+  NAPI_EXPORT_SIZEOF(tiny_http_parser_t)
+
 }
