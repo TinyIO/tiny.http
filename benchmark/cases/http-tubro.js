@@ -1,4 +1,4 @@
-const { createServer } = require('./node_modules/turbo-http');
+const { createServer } = require('turbo-http');
 
 const { makeServer } = require('../baseServer');
 

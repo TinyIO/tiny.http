@@ -1,7 +1,7 @@
 const Benchmark = require('benchmark');
 
-const { HTTPParser } = require('../../lib/http/http-parser');
-const HTTPParser2 = require('../../lib/http/http-parser3');
+const { HTTPParser } = require('http-parser-js');
+const HTTPParser2 = require('../../lib/http/http-parser');
 
 const suite = new Benchmark.Suite();
 
@@ -21,7 +21,9 @@ const buff = Buffer.from(
   ].join('\r\n')
 );
 
-const noop = () => {};
+const noop = () => {
+  // noop
+};
 
 const parser1 = new HTTPParser(HTTPParser.REQUEST);
 parser1[HTTPParser.kOnHeadersComplete] = noop;
