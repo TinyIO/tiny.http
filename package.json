@@ -21,26 +21,24 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "autocannon": "^2.4.1",
+    "autocannon": "^4.6.0",
     "benchmark": "^2.1.4",
     "cli-table": "^0.3.1",
     "coveralls": "^3.0.3",
-    "eslint": "^5.16.0",
-    "eslint-config-prettier": "^3.6.0",
-    "eslint-plugin-prettier": "^2.7.0",
-    "kleur": "^2.0.2",
-    "minimist": "^1.2.0",
-    "nyc": "^14.1.1",
-    "ora": "^3.4.0",
+    "eslint": "^6.8.0",
+    "eslint-config-prettier": "^6.10.0",
+    "eslint-plugin-prettier": "^3.1.2",
+    "kleur": "^3.0.3",
+    "nyc": "^15.0.0",
+    "ora": "^4.0.3",
     "pancho": "^1.0.2",
-    "prebuildify": "^3.0.0",
+    "prebuildify": "^3.0.4",
     "prettier": "^1.17.1",
     "tap-spec": "^5.0.0",
-    "tape": "^4.10.2",
-    "turbo-http": "^0.3.2"
+    "tape": "^4.10.2"
   },
   "dependencies": {
-    "node-gyp-build": "^4.1.0"
+    "node-gyp-build": "^4.2.1"
   },
   "prettier": {
     "singleQuote": true,

@@ -15,7 +15,7 @@ exports.makeServer = createServer => {
 
 exports.makeCluster = server => {
   if (cluster.isMaster) {
-    const n = numCPUs * 0.5;
+    const n = numCPUs;
     for (let i = 0; i < n; i++) {
       cluster.fork();
     }
