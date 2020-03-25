@@ -19,8 +19,8 @@ const cannon = (title = null) =>
         {},
         {
           url: argv.u || 'http://localhost:3001/user/keys/233',
-          connections: argv.c || 100,
-          pipelining: argv.p || 1,
+          connections: argv.c || 1000,
+          pipelining: argv.p || 10,
           duration: argv.d || 20
         },
         { title }

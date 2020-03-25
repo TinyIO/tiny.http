@@ -1,4 +1,6 @@
 {
+  "name": "tiny.http",
+  "version": "0.0.1",
   "engines": {
     "node": ">=8.11.4"
   },
